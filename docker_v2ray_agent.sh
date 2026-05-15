@@ -549,8 +549,15 @@ readLocalTLS() {
         "${PROJECT_ROOT}/tls/${tlsDomain}.pem"
         "/etc/nginx/ssl/${tlsDomain}.pem"
         "/etc/nginx/ssl/${tlsDomain}.crt"
+        "/etc/nginx/ssl/fullchain.pem"
         "/etc/letsencrypt/live/${tlsDomain}/fullchain.pem"
         "/etc/letsencrypt/live/${tlsDomain}/cert.pem"
+        "/www/server/panel/vhost/cert/${tlsDomain}/fullchain.pem"
+        "/opt/1panel/apps/openresty/openresty/www/sites/${tlsDomain}/ssl/fullchain.pem"
+        "/root/.acme.sh/${tlsDomain}_ecc/fullchain.cer"
+        "/root/.acme.sh/${tlsDomain}_ecc/${tlsDomain}.cer"
+        "/root/.acme.sh/${tlsDomain}/fullchain.cer"
+        "/root/.acme.sh/${tlsDomain}/${tlsDomain}.cer"
         "/etc/ssl/certs/${tlsDomain}.crt"
         "/etc/ssl/certs/${tlsDomain}.pem"
         "${PWD}/fullchain"
@@ -563,6 +570,10 @@ readLocalTLS() {
         "/etc/nginx/ssl/${tlsDomain}.key"
         "/etc/nginx/ssl/privkey.pem"
         "/etc/letsencrypt/live/${tlsDomain}/privkey.pem"
+        "/www/server/panel/vhost/cert/${tlsDomain}/privkey.pem"
+        "/opt/1panel/apps/openresty/openresty/www/sites/${tlsDomain}/ssl/privkey.pem"
+        "/root/.acme.sh/${tlsDomain}_ecc/${tlsDomain}.key"
+        "/root/.acme.sh/${tlsDomain}/${tlsDomain}.key"
         "/etc/ssl/private/${tlsDomain}.key"
         "${PWD}/key"
         "${PWD}/privkey.pem"
@@ -606,6 +617,12 @@ readLocalTLS() {
     fi
 }
 
+checkLocalTLSDomain() {
+    local tlsDomain="$1"
+    [[ -z "${localTLSFullchainFile}" ]] && return 1
+    openssl x509 -in "${localTLSFullchainFile}" -noout -text 2>/dev/null | grep -qE "DNS:\*?\.?${tlsDomain//./\\.}(,|$)"
+}
+
 installLocalTLS() {
     local tlsDomain="$1"
     readLocalTLS "${tlsDomain}"
@@ -616,6 +633,10 @@ installLocalTLS() {
         return 1
     fi
     if ! openssl pkey -in "${localTLSKeyFile}" -noout >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! checkLocalTLSDomain "${tlsDomain}"; then
+        echoContent red " ---> 检测到本地证书，但证书域名与 ${tlsDomain} 不匹配"
         return 1
     fi
     cp "${localTLSFullchainFile}" "${PROJECT_ROOT}/tls/${tlsDomain}.crt"

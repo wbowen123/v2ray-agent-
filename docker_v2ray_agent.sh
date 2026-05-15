@@ -37,22 +37,22 @@ ALL_PROTOCOL_NAMES=(
 echoContent() {
     case "$1" in
     red)
-        printf "\033[31m%s\033[0m\n" "$2"
+        printf "\033[31m%b\033[0m\n" "$2"
         ;;
     skyBlue)
-        printf "\033[1;36m%s\033[0m\n" "$2"
+        printf "\033[1;36m%b\033[0m\n" "$2"
         ;;
     green)
-        printf "\033[32m%s\033[0m\n" "$2"
+        printf "\033[32m%b\033[0m\n" "$2"
         ;;
     white)
-        printf "\033[37m%s\033[0m\n" "$2"
+        printf "\033[37m%b\033[0m\n" "$2"
         ;;
     yellow)
-        printf "\033[33m%s\033[0m\n" "$2"
+        printf "\033[33m%b\033[0m\n" "$2"
         ;;
     magenta)
-        printf "\033[35m%s\033[0m\n" "$2"
+        printf "\033[35m%b\033[0m\n" "$2"
         ;;
     esac
 }
@@ -147,6 +147,8 @@ loadState() {
     hysteria2_up_mbps="1000"
     hysteria2_down_mbps="1000"
     tuic_congestion_control="bbr"
+    hysteria2_port_hopping="55000:60000"
+    tuic_port_hopping="55000:60000"
     fake_site_title="Welcome"
     fake_site_mode="default"
     if [[ -f "${STATE_FILE}" ]]; then
@@ -193,6 +195,8 @@ anytls_port="${anytls_port}"
 hysteria2_up_mbps="${hysteria2_up_mbps}"
 hysteria2_down_mbps="${hysteria2_down_mbps}"
 tuic_congestion_control="${tuic_congestion_control}"
+hysteria2_port_hopping="${hysteria2_port_hopping}"
+tuic_port_hopping="${tuic_port_hopping}"
 fake_site_title="${fake_site_title}"
 fake_site_mode="${fake_site_mode}"
 EOF
@@ -1300,7 +1304,11 @@ buildDefaultLinksForUser() {
         echo "trojan://${userPassword}@${host}:${trojan_port}?sni=${host}&type=tcp#${userEmail}-Trojan_TLS"
     fi
     if containsProtocol "6"; then
-        echo "hysteria2://${userPassword}@${host}:${hysteria2_port}?peer=${host}&insecure=0&sni=${host}&alpn=h3#${userEmail}-Hysteria2"
+        local hysteriaDisplayPort="${hysteria2_port}"
+        if [[ -n "${hysteria2_port_hopping}" ]]; then
+            hysteriaDisplayPort="${hysteria2_port_hopping}"
+        fi
+        echo "hysteria2://${userPassword}@${host}:${hysteriaDisplayPort}?peer=${host}&insecure=0&sni=${host}&alpn=h3#${userEmail}-Hysteria2"
     fi
     if containsProtocol "7"; then
         echo "vless://${userUUID}@${publicIP}:${reality_vision_port}?encryption=none&security=reality&type=tcp&sni=${reality_server_name}&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&flow=xtls-rprx-vision#${userEmail}-Reality_Vision"
@@ -1309,7 +1317,11 @@ buildDefaultLinksForUser() {
         echo "vless://${userUUID}@${publicIP}:${reality_grpc_port}?encryption=none&security=reality&type=grpc&sni=${reality_server_name}&serviceName=grpc&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}#${userEmail}-Reality_gRPC"
     fi
     if containsProtocol "9"; then
-        echo "tuic://${userUUID}:${userTuicPassword}@${host}:${tuic_port}?congestion_control=${tuic_congestion_control}&alpn=h3&sni=${host}&udp_relay_mode=quic#${userEmail}-Tuic"
+        local tuicDisplayPort="${tuic_port}"
+        if [[ -n "${tuic_port_hopping}" ]]; then
+            tuicDisplayPort="${tuic_port_hopping}"
+        fi
+        echo "tuic://${userUUID}:${userTuicPassword}@${host}:${tuicDisplayPort}?congestion_control=${tuic_congestion_control}&alpn=h3&sni=${host}&udp_relay_mode=quic#${userEmail}-Tuic"
     fi
     if containsProtocol "10"; then
         echo "naive+https://${userEmail}:${userPassword}@${host}:${naive_port}#${userEmail}-Naive"
@@ -1406,6 +1418,9 @@ showSubscribeLinks() {
     local emailMd5
     local subscribeHost
     local subscribeSalt
+    local defaultSubscribeUrl
+    local clashMetaSubscribeUrl
+    local singBoxSubscribeUrl
     subscribeSalt="$(cat "${SUBSCRIBE_SALT_FILE}" 2>/dev/null)"
     subscribeHost="${current_host}"
     if [[ -z "${subscribeHost}" ]]; then
@@ -1414,16 +1429,22 @@ showSubscribeLinks() {
     while IFS= read -r userEntry; do
         local userEmail="${userEntry%%,*}"
         emailMd5=$(echo -n "${userEmail}${subscribeSalt}" | md5sum | awk '{print $1}')
+        defaultSubscribeUrl="${subscribe_type}://${subscribeHost}:${subscribe_port}/s/default/${emailMd5}"
+        clashMetaSubscribeUrl="${subscribe_type}://${subscribeHost}:${subscribe_port}/s/clashMetaProfiles/${emailMd5}"
+        singBoxSubscribeUrl="${subscribe_type}://${subscribeHost}:${subscribe_port}/s/sing-box/${emailMd5}"
         echoContent skyBlue "\n----------默认订阅----------\n"
         showContactInfo
-        echoContent yellow "url:${subscribe_type}://${subscribeHost}:${subscribe_port}/s/default/${emailMd5}"
-        echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$(urlEncode "${subscribe_type}://${subscribeHost}:${subscribe_port}/s/default/${emailMd5}")"
+        echoContent yellow "url:${defaultSubscribeUrl}"
+        echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$(urlEncode "${defaultSubscribeUrl}")"
+        showTerminalQRCode "${defaultSubscribeUrl}"
         echoContent skyBlue "\n----------clashMeta订阅----------\n"
-        echoContent yellow "url:${subscribe_type}://${subscribeHost}:${subscribe_port}/s/clashMetaProfiles/${emailMd5}"
-        echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$(urlEncode "${subscribe_type}://${subscribeHost}:${subscribe_port}/s/clashMetaProfiles/${emailMd5}")"
+        echoContent yellow "url:${clashMetaSubscribeUrl}"
+        echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$(urlEncode "${clashMetaSubscribeUrl}")"
+        showTerminalQRCode "${clashMetaSubscribeUrl}"
         echoContent skyBlue "\n----------sing-box订阅----------\n"
-        echoContent yellow "url:${subscribe_type}://${subscribeHost}:${subscribe_port}/s/sing-box/${emailMd5}"
-        echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$(urlEncode "${subscribe_type}://${subscribeHost}:${subscribe_port}/s/sing-box/${emailMd5}")"
+        echoContent yellow "url:${singBoxSubscribeUrl}"
+        echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=$(urlEncode "${singBoxSubscribeUrl}")"
+        showTerminalQRCode "${singBoxSubscribeUrl}"
     done < <(listUsers | awk -F '[:,]' '{print $2","$3}')
 }
 
@@ -1537,15 +1558,214 @@ manageTLSMenu() {
     esac
 }
 
+allowUdpRangePort() {
+    local rangeValue="$1"
+    if commandExists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-port="${rangeValue}/udp" >/dev/null 2>&1 || true
+        firewall-cmd --reload >/dev/null 2>&1 || true
+    fi
+}
+
+removeUdpRangePort() {
+    local rangeValue="$1"
+    if commandExists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1; then
+        firewall-cmd --permanent --remove-port="${rangeValue}/udp" >/dev/null 2>&1 || true
+        firewall-cmd --reload >/dev/null 2>&1 || true
+    fi
+}
+
+getPortHoppingValue() {
+    local protocolType="$1"
+    if [[ "${protocolType}" == "hysteria2" ]]; then
+        printf '%s' "${hysteria2_port_hopping}"
+    else
+        printf '%s' "${tuic_port_hopping}"
+    fi
+}
+
+setPortHoppingValue() {
+    local protocolType="$1"
+    local rangeValue="$2"
+    if [[ "${protocolType}" == "hysteria2" ]]; then
+        hysteria2_port_hopping="${rangeValue}"
+    else
+        tuic_port_hopping="${rangeValue}"
+    fi
+}
+
+clearPortHoppingValue() {
+    local protocolType="$1"
+    if [[ "${protocolType}" == "hysteria2" ]]; then
+        hysteria2_port_hopping=""
+    else
+        tuic_port_hopping=""
+    fi
+}
+
+getProtocolTargetPort() {
+    local protocolType="$1"
+    if [[ "${protocolType}" == "hysteria2" ]]; then
+        printf '%s' "${hysteria2_port}"
+    else
+        printf '%s' "${tuic_port}"
+    fi
+}
+
+validatePortHoppingRange() {
+    local rangeValue="$1"
+    local startPort="${rangeValue%%:*}"
+    local endPort="${rangeValue##*:}"
+    if [[ ! "${startPort}" =~ ^[0-9]+$ || ! "${endPort}" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    if [[ "${startPort}" -ge "${endPort}" ]]; then
+        return 1
+    fi
+    if [[ "${startPort}" -lt 1 || "${endPort}" -gt 65535 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+deletePortHoppingRules() {
+    local protocolType="$1"
+    local targetPort="$2"
+    local currentRange
+    currentRange="$(getPortHoppingValue "${protocolType}")"
+    if [[ -z "${currentRange}" ]]; then
+        return 0
+    fi
+    local commentTag="wbowen123_${protocolType}_portHopping"
+    local startPort="${currentRange%%:*}"
+    local endPort="${currentRange##*:}"
+
+    if commandExists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1; then
+        local currentPort
+        for ((currentPort = startPort; currentPort <= endPort; currentPort++)); do
+            firewall-cmd --permanent --remove-forward-port=port="${currentPort}":proto=udp:toport="${targetPort}" >/dev/null 2>&1 || true
+        done
+        removeUdpRangePort "${currentRange}"
+        firewall-cmd --reload >/dev/null 2>&1 || true
+    elif commandExists iptables; then
+        iptables -t nat -D PREROUTING -p udp --dport "${startPort}:${endPort}" -m comment --comment "${commentTag}" -j DNAT --to-destination ":${targetPort}" >/dev/null 2>&1 || true
+    fi
+}
+
+applyPortHoppingRules() {
+    local protocolType="$1"
+    local rangeValue="$2"
+    local targetPort="$3"
+    local startPort="${rangeValue%%:*}"
+    local endPort="${rangeValue##*:}"
+    local commentTag="wbowen123_${protocolType}_portHopping"
+
+    if commandExists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1; then
+        local currentPort
+        for ((currentPort = startPort; currentPort <= endPort; currentPort++)); do
+            firewall-cmd --permanent --add-forward-port=port="${currentPort}":proto=udp:toport="${targetPort}" >/dev/null 2>&1 || true
+        done
+        allowUdpRangePort "${rangeValue}"
+        firewall-cmd --reload >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    if commandExists iptables; then
+        iptables -t nat -A PREROUTING -p udp --dport "${startPort}:${endPort}" -m comment --comment "${commentTag}" -j DNAT --to-destination ":${targetPort}" >/dev/null 2>&1 || return 1
+        return 0
+    fi
+
+    return 1
+}
+
+portHoppingMenu() {
+    local protocolType="$1"
+    local targetPort
+    local currentRange
+    local rangeInput=""
+    local portHopStatus=""
+    targetPort="$(getProtocolTargetPort "${protocolType}")"
+    currentRange="$(getPortHoppingValue "${protocolType}")"
+
+    if [[ -z "${targetPort}" ]]; then
+        echoContent red " ---> 未检测到 ${protocolType} 监听端口，请先完成安装"
+        return 1
+    fi
+
+    echoContent red "=============================================================="
+    echoContent yellow "1.添加/修改端口跳跃"
+    echoContent yellow "2.删除端口跳跃"
+    echoContent yellow "3.查看端口跳跃"
+    echoContent red "=============================================================="
+    read -r -p "请选择:" portHopStatus
+    case "${portHopStatus}" in
+    1)
+        echoContent yellow "默认 UDP 端口跳跃范围为 55000:60000"
+        read -r -p "请输入端口跳跃范围 [回车默认 55000:60000]:" rangeInput
+        [[ -z "${rangeInput}" ]] && rangeInput="55000:60000"
+        if ! validatePortHoppingRange "${rangeInput}"; then
+            echoContent red " ---> 端口跳跃范围格式错误，应为 55000:60000"
+            return 1
+        fi
+        deletePortHoppingRules "${protocolType}" "${targetPort}"
+        if ! applyPortHoppingRules "${protocolType}" "${rangeInput}" "${targetPort}"; then
+            echoContent red " ---> 端口跳跃添加失败，请确认系统存在 firewalld 或 iptables"
+            return 1
+        fi
+        setPortHoppingValue "${protocolType}" "${rangeInput}"
+        saveState
+        echoContent green " ---> ${protocolType} 端口跳跃添加成功: ${rangeInput} -> ${targetPort}/udp"
+        ;;
+    2)
+        if [[ -z "${currentRange}" ]]; then
+            echoContent yellow " ---> 当前未设置端口跳跃"
+            return 0
+        fi
+        deletePortHoppingRules "${protocolType}" "${targetPort}"
+        clearPortHoppingValue "${protocolType}"
+        saveState
+        echoContent green " ---> ${protocolType} 端口跳跃已删除"
+        ;;
+    3)
+        if [[ -n "${currentRange}" ]]; then
+            echoContent green " ---> 当前 ${protocolType} 端口跳跃范围: ${currentRange}"
+            echoContent green " ---> 实际转发目标端口: ${targetPort}/udp"
+        else
+            echoContent yellow " ---> 当前未设置端口跳跃"
+        fi
+        ;;
+    *)
+        echoContent red " ---> 选择错误"
+        ;;
+    esac
+}
+
+manageHysteria2Menu() {
+    if ! containsProtocol "6"; then
+        echoContent red " ---> 当前未安装 Hysteria2"
+        return 1
+    fi
+    portHoppingMenu "hysteria2"
+}
+
+manageTuicMenu() {
+    if ! containsProtocol "9"; then
+        echoContent red " ---> 当前未安装 Tuic"
+        return 1
+    fi
+    portHoppingMenu "tuic"
+}
+
 showInstalledProtocolPorts() {
     containsProtocol "0" && echoContent yellow "0. VLESS+TCP[TLS_Vision] : ${vless_tcp_port}"
     containsProtocol "1" && echoContent yellow "1. VLESS+WS[TLS] : ${vless_ws_port}"
     containsProtocol "3" && echoContent yellow "3. VMess+WS[TLS] : ${vmess_ws_port}"
     containsProtocol "4" && echoContent yellow "4. Trojan+TCP[TLS] : ${trojan_port}"
     containsProtocol "6" && echoContent yellow "6. Hysteria2 : ${hysteria2_port}"
+    containsProtocol "6" && [[ -n "${hysteria2_port_hopping}" ]] && echoContent green "   Hysteria2 端口跳跃: ${hysteria2_port_hopping}"
     containsProtocol "7" && echoContent yellow "7. VLESS+Reality+Vision : ${reality_vision_port}"
     containsProtocol "8" && echoContent yellow "8. VLESS+Reality+gRPC : ${reality_grpc_port}"
     containsProtocol "9" && echoContent yellow "9. Tuic : ${tuic_port}"
+    containsProtocol "9" && [[ -n "${tuic_port_hopping}" ]] && echoContent green "   Tuic 端口跳跃: ${tuic_port_hopping}"
     containsProtocol "10" && echoContent yellow "10. Naive : ${naive_port}"
     containsProtocol "11" && echoContent yellow "11. VMess+TLS+HTTPUpgrade : ${vmess_httpupgrade_port}"
     containsProtocol "12" && echoContent yellow "12. VLESS+Reality+XHTTP : ${reality_xhttp_port}"
@@ -1885,7 +2105,7 @@ menu() {
     echoContent green "作者：wbowen123"
     echoContent green "当前版本：${SCRIPT_VERSION}"
     echoContent green "Github：${GITHUB_REPO_URL}"
-    echoContent green "描述：八合一 Docker 总控脚本\c"
+    echoContent green "描述：八合一 Docker 总控脚本"
     showInstallStatus
     echoContent red "=============================================================="
     echoContent yellow "1.重新安装/初始化"
@@ -1923,13 +2143,13 @@ menu() {
         installNoDomainReality
         ;;
     4)
-        showAccounts
+        manageHysteria2Menu
         ;;
     5)
         manageReality
         ;;
     6)
-        showAccounts
+        manageTuicMenu
         ;;
     7)
         manageAccountMenu

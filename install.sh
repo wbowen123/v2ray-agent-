@@ -367,6 +367,7 @@ readLocalTLS() {
     local scriptCurrentDir=
     local certCandidate=
     local keyCandidate=
+    local searchDir=
     local certCandidates=
     local keyCandidates=
 
@@ -378,6 +379,18 @@ readLocalTLS() {
         "/etc/nginx/ssl/${tlsDomain}.pem"
         "/etc/nginx/ssl/${tlsDomain}.crt"
         "/etc/nginx/ssl/fullchain.pem"
+        "/etc/letsencrypt/live/${tlsDomain}/fullchain.pem"
+        "/etc/letsencrypt/live/${tlsDomain}/cert.pem"
+        "/etc/ssl/certs/${tlsDomain}.crt"
+        "/etc/ssl/certs/${tlsDomain}.pem"
+        "/usr/local/nginx/conf/ssl/${tlsDomain}.crt"
+        "/usr/local/nginx/conf/ssl/${tlsDomain}.pem"
+        "/www/server/panel/vhost/cert/${tlsDomain}/fullchain.pem"
+        "/opt/1panel/apps/openresty/openresty/www/sites/${tlsDomain}/ssl/fullchain.pem"
+        "/root/.acme.sh/${tlsDomain}_ecc/fullchain.cer"
+        "/root/.acme.sh/${tlsDomain}_ecc/${tlsDomain}.cer"
+        "/root/.acme.sh/${tlsDomain}/fullchain.cer"
+        "/root/.acme.sh/${tlsDomain}/${tlsDomain}.cer"
         "${scriptCurrentDir}/fullchain"
         "${scriptCurrentDir}/fullchain.pem"
         "${scriptCurrentDir}/cert.pem"
@@ -386,6 +399,13 @@ readLocalTLS() {
     keyCandidates=(
         "/etc/nginx/ssl/${tlsDomain}.key"
         "/etc/nginx/ssl/privkey.pem"
+        "/etc/letsencrypt/live/${tlsDomain}/privkey.pem"
+        "/etc/ssl/private/${tlsDomain}.key"
+        "/usr/local/nginx/conf/ssl/${tlsDomain}.key"
+        "/www/server/panel/vhost/cert/${tlsDomain}/privkey.pem"
+        "/opt/1panel/apps/openresty/openresty/www/sites/${tlsDomain}/ssl/privkey.pem"
+        "/root/.acme.sh/${tlsDomain}_ecc/${tlsDomain}.key"
+        "/root/.acme.sh/${tlsDomain}/${tlsDomain}.key"
         "${scriptCurrentDir}/key"
         "${scriptCurrentDir}/privkey.pem"
         "${scriptCurrentDir}/private.key"
@@ -405,6 +425,32 @@ readLocalTLS() {
             break
         fi
     done
+
+    if [[ -z "${localTLSFullchainFile}" ]]; then
+        for searchDir in "${scriptCurrentDir}" "/etc" "/root" "/www" "/opt" "/usr/local"; do
+            [[ ! -d "${searchDir}" ]] && continue
+            while read -r certCandidate; do
+                if [[ -f "${certCandidate}" ]] && grep -q "BEGIN CERTIFICATE" "${certCandidate}"; then
+                    localTLSFullchainFile="${certCandidate}"
+                    break
+                fi
+            done < <(find "${searchDir}" -maxdepth 6 -type f \( -name "${tlsDomain}.crt" -o -name "${tlsDomain}.pem" -o -name "${tlsDomain}.cer" -o -name "fullchain.pem" -o -name "fullchain.cer" -o -name "cert.pem" -o -name "certificate.pem" \) 2>/dev/null)
+            [[ -n "${localTLSFullchainFile}" ]] && break
+        done
+    fi
+
+    if [[ -z "${localTLSKeyFile}" ]]; then
+        for searchDir in "${scriptCurrentDir}" "/etc" "/root" "/www" "/opt" "/usr/local"; do
+            [[ ! -d "${searchDir}" ]] && continue
+            while read -r keyCandidate; do
+                if [[ -f "${keyCandidate}" ]] && grep -q "BEGIN .*PRIVATE KEY" "${keyCandidate}"; then
+                    localTLSKeyFile="${keyCandidate}"
+                    break
+                fi
+            done < <(find "${searchDir}" -maxdepth 6 -type f \( -name "${tlsDomain}.key" -o -name "privkey.pem" -o -name "private.key" -o -name "privatekey.pem" \) 2>/dev/null)
+            [[ -n "${localTLSKeyFile}" ]] && break
+        done
+    fi
 }
 
 # 检查本地证书是否匹配当前域名
@@ -4973,7 +5019,13 @@ showLastNodeQRCode() {
 showAccountSubscribeLinks() {
     readNginxSubscribe
     if [[ -z "${subscribePort}" ]]; then
-        return 0
+        echoContent yellow "\n ---> 未检测到订阅服务，开始自动配置订阅"
+        installSubscribe
+        readNginxSubscribe
+        if [[ -z "${subscribePort}" ]]; then
+            echoContent red " ---> 订阅服务配置失败，已跳过订阅输出"
+            return 0
+        fi
     fi
     if [[ ! -f "/etc/v2ray-agent/subscribe_local/subscribeSalt" || -z $(cat "/etc/v2ray-agent/subscribe_local/subscribeSalt") ]]; then
         echo "$(initRandomSalt)" >"/etc/v2ray-agent/subscribe_local/subscribeSalt"
@@ -6057,10 +6109,11 @@ unInstall() {
         echoContent green " ---> 删除伪装网站完成"
     fi
 
-    rm -rf /usr/bin/vasma
-    rm -rf /usr/sbin/vasma
+    rm -rf /usr/bin/vasma /usr/bin/va /usr/bin/VA
+    rm -rf /usr/sbin/vasma /usr/sbin/va /usr/sbin/VA
     echoContent green " ---> 卸载快捷方式完成"
     echoContent green " ---> 卸载v2ray-agent脚本完成"
+    echoContent yellow " ---> 请手动删除客户端内已保存的节点和订阅"
 }
 
 # CDN节点管理
@@ -6479,9 +6532,9 @@ updateV2RayAgent() {
     echoContent skyBlue "\n进度  $1/${totalProgress} : 更新v2ray-agent脚本"
     rm -rf /etc/v2ray-agent/install.sh
     if [[ "${release}" == "alpine" ]]; then
-        wget -c -q -P /etc/v2ray-agent/ -N --no-check-certificate "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh"
+        wget -c -q -P /etc/v2ray-agent/ -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh"
     else
-        wget -c -q "${wgetShowProgressStatus}" -P /etc/v2ray-agent/ -N --no-check-certificate "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh"
+        wget -c -q "${wgetShowProgressStatus}" -P /etc/v2ray-agent/ -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh"
     fi
 
     sudo chmod 700 /etc/v2ray-agent/install.sh
@@ -6489,10 +6542,10 @@ updateV2RayAgent() {
     version=$(grep '当前版本：v' "/etc/v2ray-agent/install.sh" | awk -F "[v]" '{print $2}' | tail -n +2 | head -n 1 | awk -F "[\"]" '{print $1}')
 
     echoContent green "\n ---> 更新完毕"
-    echoContent yellow " ---> 请手动执行[vasma]打开脚本"
+    echoContent yellow "安装后，运行以下命令可再次打开管理菜单:\n\nva"
     echoContent green " ---> 当前版本：${version}\n"
     echoContent yellow "如更新不成功，请手动执行下面命令\n"
-    echoContent skyBlue "wget -P /root -N --no-check-certificate https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh && chmod 700 /root/install.sh && /root/install.sh"
+    echoContent skyBlue "wget -P /root -N --no-check-certificate https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh && chmod 700 /root/install.sh && /root/install.sh"
     echo
     exit 0
 }
@@ -6627,27 +6680,37 @@ EOF
 # 脚本快捷方式
 aliasInstall() {
 
-    if [[ -f "$HOME/install.sh" ]] && [[ -d "/etc/v2ray-agent" ]] && grep <"$HOME/install.sh" -q "作者:mack-a"; then
+    if [[ -f "$HOME/install.sh" ]] && [[ -d "/etc/v2ray-agent" ]] && grep <"$HOME/install.sh" -q "八合一共存脚本"; then
         mv "$HOME/install.sh" /etc/v2ray-agent/install.sh
-        local vasmaType=
+        local shortcutType=
         if [[ -d "/usr/bin/" ]]; then
-            if [[ ! -f "/usr/bin/vasma" ]]; then
-                ln -s /etc/v2ray-agent/install.sh /usr/bin/vasma
-                chmod 700 /usr/bin/vasma
-                vasmaType=true
+            if [[ ! -f "/usr/bin/va" ]]; then
+                ln -s /etc/v2ray-agent/install.sh /usr/bin/va
+                chmod 700 /usr/bin/va
+                shortcutType=true
+            fi
+            if [[ ! -f "/usr/bin/VA" ]]; then
+                ln -s /etc/v2ray-agent/install.sh /usr/bin/VA
+                chmod 700 /usr/bin/VA
+                shortcutType=true
             fi
 
             rm -rf "$HOME/install.sh"
         elif [[ -d "/usr/sbin" ]]; then
-            if [[ ! -f "/usr/sbin/vasma" ]]; then
-                ln -s /etc/v2ray-agent/install.sh /usr/sbin/vasma
-                chmod 700 /usr/sbin/vasma
-                vasmaType=true
+            if [[ ! -f "/usr/sbin/va" ]]; then
+                ln -s /etc/v2ray-agent/install.sh /usr/sbin/va
+                chmod 700 /usr/sbin/va
+                shortcutType=true
+            fi
+            if [[ ! -f "/usr/sbin/VA" ]]; then
+                ln -s /etc/v2ray-agent/install.sh /usr/sbin/VA
+                chmod 700 /usr/sbin/VA
+                shortcutType=true
             fi
             rm -rf "$HOME/install.sh"
         fi
-        if [[ "${vasmaType}" == "true" ]]; then
-            echoContent green "快捷方式创建成功，可执行[vasma]重新打开脚本"
+        if [[ "${shortcutType}" == "true" ]]; then
+            echoContent green "安装后，运行以下命令可再次打开管理菜单:\n\nva"
         fi
     fi
 }
@@ -10327,9 +10390,9 @@ singBoxVersionManageMenu() {
 menu() {
     cd "$HOME" || exit
     echoContent red "\n=============================================================="
-    echoContent green "作者：mack-a"
+    echoContent green "作者：wbowen123"
     echoContent green "当前版本：v3.5.17"
-    echoContent green "Github：https://github.com/mack-a/v2ray-agent"
+    echoContent green "Github：https://github.com/wbowen123/v2ray-agent"
     echoContent green "描述：八合一共存脚本\c"
     showInstallStatus
     checkWgetShowProgress

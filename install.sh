@@ -6114,7 +6114,7 @@ unInstall() {
     rm -rf /usr/sbin/vasma /usr/sbin/va /usr/sbin/VA
     echoContent green " ---> 卸载快捷方式完成"
     echoContent green " ---> 卸载v2ray-agent脚本完成"
-    echoContent yellow " ---> 客户端内已导入的节点和订阅仍需手动删除"
+    echoContent yellow " ---> 客户端内已导入的节点和订阅请按需手动删除"
 }
 
 # CDN节点管理
@@ -9152,7 +9152,7 @@ handleNodeAndSubscribeCleanup() {
         rm -rf /etc/v2ray-agent/subscribe_local >/dev/null 2>&1
         rm -rf /etc/v2ray-agent/subscribe_remote >/dev/null 2>&1
         rm -rf ${nginxConfigPath}subscribe.conf >/dev/null 2>&1
-        echoContent green " ---> 已自动删除服务器端节点和订阅配置"
+        echoContent green " ---> 服务器端节点和订阅配置已自动删除"
         return 0
     fi
 

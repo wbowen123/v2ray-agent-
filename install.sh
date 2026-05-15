@@ -3127,17 +3127,17 @@ initHysteriaPort() {
 # 初始化hysteria网络信息
 initHysteria2Network() {
 
-    echoContent yellow "请输入本地带宽峰值的下行速度（默认：100，单位：Mbps）"
+    echoContent yellow "请输入本地带宽峰值的下行速度（默认：1000，单位：Mbps）"
     read -r -p "下行速度:" hysteria2ClientDownloadSpeed
     if [[ -z "${hysteria2ClientDownloadSpeed}" ]]; then
-        hysteria2ClientDownloadSpeed=100
+        hysteria2ClientDownloadSpeed=1000
         echoContent green "\n ---> 下行速度: ${hysteria2ClientDownloadSpeed}\n"
     fi
 
-    echoContent yellow "请输入本地带宽峰值的上行速度（默认：50，单位：Mbps）"
+    echoContent yellow "请输入本地带宽峰值的上行速度（默认：1000，单位：Mbps）"
     read -r -p "上行速度:" hysteria2ClientUploadSpeed
     if [[ -z "${hysteria2ClientUploadSpeed}" ]]; then
-        hysteria2ClientUploadSpeed=50
+        hysteria2ClientUploadSpeed=1000
         echoContent green "\n ---> 上行速度: ${hysteria2ClientUploadSpeed}\n"
     fi
 }
@@ -4900,6 +4900,44 @@ EOF
 initSubscribeLocalConfig() {
     rm -rf /etc/v2ray-agent/subscribe_local/sing-box/*
 }
+
+# 输出终端二维码
+showTerminalQRCode() {
+    local qrData=$1
+    if [[ -z "${qrData}" ]]; then
+        return 0
+    fi
+    if [[ "${release}" != "alpine" ]] && qrencode --help >/dev/null 2>&1; then
+        printf '%s' "${qrData}" | qrencode -s 10 -m 1 -t UTF8
+    fi
+}
+
+# 输出最新节点的终端二维码
+showLastNodeQRCode() {
+    local user=$1
+    local latestNodeLink=
+    if [[ -z "${user}" || ! -f "/etc/v2ray-agent/subscribe_local/default/${user}" ]]; then
+        return 0
+    fi
+    latestNodeLink=$(grep -v '^$' "/etc/v2ray-agent/subscribe_local/default/${user}" | tail -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "${latestNodeLink}" ]]; then
+        echoContent yellow " ---> 终端二维码"
+        showTerminalQRCode "${latestNodeLink}"
+        echo
+    fi
+}
+
+# 账号输出后展示订阅链接
+showAccountSubscribeLinks() {
+    readNginxSubscribe
+    if [[ -z "${subscribePort}" ]]; then
+        return 0
+    fi
+    if [[ ! -f "/etc/v2ray-agent/subscribe_local/subscribeSalt" || -z $(cat "/etc/v2ray-agent/subscribe_local/subscribeSalt") ]]; then
+        echo "$(initRandomSalt)" >"/etc/v2ray-agent/subscribe_local/subscribeSalt"
+    fi
+    subscribe true
+}
 # 通用
 defaultBase64Code() {
     local type=$1
@@ -5372,11 +5410,12 @@ EOF
         echoContent yellow " ---> 二维码 AnyTLS"
         echoContent green "    https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=anytls%3A%2F%2F${id}%40${currentHost}%3A${singBoxAnyTLSPort}%3Fpeer%3D${currentHost}%26insecure%3D0%26sni%3D${currentHost}%23${email}\n"
     fi
-
+    showLastNodeQRCode "${user}"
 }
 
 # 账号
 showAccounts() {
+    local skipSubscribeStatus=$2
     readInstallType
     readInstallProtocolType
     readConfigHostPathUUID
@@ -5646,6 +5685,9 @@ showAccounts() {
             defaultBase64Code anytls "${singBoxAnyTLSPort}" "$(echo "${user}" | jq -r .name)" "$(echo "${user}" | jq -r .password)"
         done
 
+    fi
+    if [[ -z "${skipSubscribeStatus}" ]]; then
+        showAccountSubscribeLinks
     fi
 }
 # 移除nginx302配置
@@ -9467,7 +9509,7 @@ subscribe() {
         rm -rf /etc/v2ray-agent/subscribe_local/default/*
         rm -rf /etc/v2ray-agent/subscribe_local/clashMeta/*
         rm -rf /etc/v2ray-agent/subscribe_local/sing-box/*
-        showAccounts >/dev/null
+        showAccounts "" "skipSubscribe" >/dev/null
         if [[ -n $(ls /etc/v2ray-agent/subscribe_local/default/) ]]; then
             if [[ -f "/etc/v2ray-agent/subscribe_remote/remoteSubscribeUrl" && -n $(cat "/etc/v2ray-agent/subscribe_remote/remoteSubscribeUrl") ]]; then
                 if [[ -z "${renewSalt}" ]]; then
@@ -10111,16 +10153,6 @@ menu() {
     echoContent green "描述：八合一共存脚本\c"
     showInstallStatus
     checkWgetShowProgress
-    echoContent red "\n=========================== 推广区============================"
-    echoContent red "                                              "
-    echoContent yellow "VPS选购攻略"
-    echoContent green "https://www.v2ray-agent.com/archives/1679975663984"
-    echoContent yellow "年付10美金低价VPS AS4837"
-    echoContent green "https://www.v2ray-agent.com/archives/racknerdtao-can-zheng-li-nian-fu-10mei-yuan"
-    echoContent yellow "优质常驻套餐DMIT CN2-GIA"
-    echoContent green "https://www.v2ray-agent.com/archives/186cee7b-9459-4e57-b9b2-b07a4f36931c"
-    echoContent yellow "VPS探针：https://ping.v2ray-agent.com/"
-    echoContent red "                                              "
     echoContent red "=============================================================="
     if [[ -n "${coreInstallType}" ]]; then
         echoContent yellow "1.重新安装"

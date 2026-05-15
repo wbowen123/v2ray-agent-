@@ -3223,6 +3223,49 @@ initHysteria2Network() {
     fi
 }
 
+promptUdpPortHopping() {
+    local type="$1"
+    local targetPort="$2"
+    local enableStatus=""
+    local portHoppingStart=""
+    local portHoppingEnd=""
+
+    if ! find /usr/bin /usr/sbin | grep -q -w iptables; then
+        echoContent yellow " ---> 未检测到 iptables，跳过端口跳跃配置"
+        return 0
+    fi
+
+    if [[ -z "${targetPort}" ]]; then
+        return 0
+    fi
+
+    if [[ "${type}" == "hysteria2" ]]; then
+        readPortHopping "${type}" "${targetPort}"
+        portHoppingStart="${hysteria2PortHoppingStart}"
+        portHoppingEnd="${hysteria2PortHoppingEnd}"
+    elif [[ "${type}" == "tuic" ]]; then
+        readPortHopping "${type}" "${targetPort}"
+        portHoppingStart="${tuicPortHoppingStart}"
+        portHoppingEnd="${tuicPortHoppingEnd}"
+    fi
+
+    if [[ -n "${portHoppingStart}" && -n "${portHoppingEnd}" ]]; then
+        echoContent yellow " ---> 已存在端口跳跃范围: ${portHoppingStart}-${portHoppingEnd}，跳过配置"
+        return 0
+    fi
+
+    read -r -p "是否开启端口跳跃？[y/n]:" enableStatus
+    if [[ -z "${enableStatus}" ]]; then
+        enableStatus="n"
+    fi
+    normalizeYesNoInput enableStatus
+
+    if [[ "${enableStatus}" == "y" ]]; then
+        addPortHopping "${type}" "${targetPort}" || return 1
+    fi
+    return 0
+}
+
 # firewalld设置端口跳跃
 addFirewalldPortHopping() {
 
@@ -3241,12 +3284,12 @@ addPortHopping() {
     local targetPort=$2
     if [[ -n "${portHoppingStart}" || -n "${portHoppingEnd}" ]]; then
         echoContent red " ---> 已添加不可重复添加，可删除后重新添加"
-        exit 0
+        return 1
     fi
     if [[ "${release}" == "centos" ]]; then
         if ! systemctl status firewalld 2>/dev/null | grep -q "active (running)"; then
             echoContent red " ---> 未启动firewalld防火墙，无法设置端口跳跃。"
-            exit 0
+            return 1
         fi
     fi
 
@@ -3254,53 +3297,67 @@ addPortHopping() {
     echoContent red "\n=============================================================="
     echoContent yellow "# 注意事项\n"
     echoContent yellow "仅支持Hysteria2、Tuic"
-    echoContent yellow "端口跳跃的起始位置为30000"
-    echoContent yellow "端口跳跃的结束位置为40000"
-    echoContent yellow "可以在30000-40000范围中选一段"
-    echoContent yellow "建议1000个左右"
+    echoContent yellow "端口范围为 1-65535"
+    echoContent yellow "默认范围为 55000-60000"
+    echoContent yellow "建议1000个左右，范围越大配置越慢"
     echoContent yellow "注意不要和其他的端口跳跃设置范围一样，设置相同会覆盖。"
 
-    echoContent yellow "请输入端口跳跃的范围，例如[30000-31000]"
+    echoContent yellow "请输入端口跳跃的范围，例如[55000-56000]，[回车]使用默认[55000-60000]"
 
     read -r -p "范围:" portHoppingRange
     if [[ -z "${portHoppingRange}" ]]; then
-        echoContent red " ---> 范围不可为空"
-        addPortHopping "${type}" "${targetPort}"
-    elif echo "${portHoppingRange}" | grep -q "-"; then
+        portHoppingRange="55000-60000"
+    fi
 
-        local portStart=
-        local portEnd=
-        portStart=$(echo "${portHoppingRange}" | awk -F '-' '{print $1}')
-        portEnd=$(echo "${portHoppingRange}" | awk -F '-' '{print $2}')
+    if ! echo "${portHoppingRange}" | grep -q "-"; then
+        echoContent red " ---> 范围不合法"
+        return 1
+    fi
 
-        if [[ -z "${portStart}" || -z "${portEnd}" ]]; then
-            echoContent red " ---> 范围不合法"
-            addPortHopping "${type}" "${targetPort}"
-        elif ((portStart < 30000 || portStart > 40000 || portEnd < 30000 || portEnd > 40000 || portEnd < portStart)); then
-            echoContent red " ---> 范围不合法"
-            addPortHopping "${type}" "${targetPort}"
-        else
-            echoContent green "\n端口范围: ${portHoppingRange}\n"
-            if [[ "${release}" == "centos" ]]; then
-                sudo firewall-cmd --permanent --add-masquerade
-                sudo firewall-cmd --reload
-                addFirewalldPortHopping "${portStart}" "${portEnd}" "${targetPort}"
-                if ! sudo firewall-cmd --list-forward-ports | grep -q "toport=${targetPort}"; then
-                    echoContent red " ---> 端口跳跃添加失败"
-                    exit 0
-                fi
-            else
-                iptables -t nat -A PREROUTING -p udp --dport "${portStart}:${portEnd}" -m comment --comment "mack-a_${type}_portHopping" -j DNAT --to-destination ":${targetPort}"
-                sudo netfilter-persistent save
-                if ! iptables-save | grep -q "mack-a_${type}_portHopping"; then
-                    echoContent red " ---> 端口跳跃添加失败"
-                    exit 0
-                fi
+    local portStart=
+    local portEnd=
+    portStart=$(echo "${portHoppingRange}" | awk -F '-' '{print $1}')
+    portEnd=$(echo "${portHoppingRange}" | awk -F '-' '{print $2}')
+
+    if [[ -z "${portStart}" || -z "${portEnd}" ]]; then
+        echoContent red " ---> 范围不合法"
+        return 1
+    fi
+    if ((portStart < 1 || portStart > 65535 || portEnd < 1 || portEnd > 65535 || portEnd < portStart)); then
+        echoContent red " ---> 范围不合法"
+        return 1
+    fi
+
+    echoContent green "\n端口范围: ${portHoppingRange}\n"
+    if [[ "${release}" == "centos" ]]; then
+        local rangeSize=$((portEnd - portStart + 1))
+        if ((rangeSize > 2000)); then
+            local continueStatus=""
+            echoContent yellow " ---> 当前范围端口数量: ${rangeSize}，firewalld 配置会较慢"
+            read -r -p "是否继续？[y/n]:" continueStatus
+            normalizeYesNoInput continueStatus
+            if [[ "${continueStatus}" != "y" ]]; then
+                return 1
             fi
-            allowPort "${portStart}:${portEnd}" udp
-            echoContent green " ---> 端口跳跃添加成功"
+        fi
+        sudo firewall-cmd --permanent --add-masquerade
+        sudo firewall-cmd --reload
+        addFirewalldPortHopping "${portStart}" "${portEnd}" "${targetPort}"
+        if ! sudo firewall-cmd --list-forward-ports | grep -q "toport=${targetPort}"; then
+            echoContent red " ---> 端口跳跃添加失败"
+            return 1
+        fi
+    else
+        iptables -t nat -A PREROUTING -p udp --dport "${portStart}:${portEnd}" -m comment --comment "mack-a_${type}_portHopping" -j DNAT --to-destination ":${targetPort}"
+        sudo netfilter-persistent save
+        if ! iptables-save | grep -q "mack-a_${type}_portHopping"; then
+            echoContent red " ---> 端口跳跃添加失败"
+            return 1
         fi
     fi
+    allowPort "${portStart}:${portEnd}" udp
+    echoContent green " ---> 端口跳跃添加成功"
+    return 0
 }
 
 # 读取端口跳跃的配置
@@ -4781,6 +4838,7 @@ EOF
         echo
         mapfile -t result < <(initSingBoxPort "${singBoxHysteria2Port}")
         echoContent green "\n ---> Hysteria2端口：${result[-1]}"
+        promptUdpPortHopping hysteria2 "${result[-1]}"
         initHysteria2Network
         cat <<EOF >/etc/v2ray-agent/sing-box/conf/config/06_hysteria2_inbounds.json
 {
@@ -4843,6 +4901,7 @@ EOF
         echo
         mapfile -t result < <(initSingBoxPort "${singBoxTuicPort}")
         echoContent green "\n ---> Tuic端口：${result[-1]}"
+        promptUdpPortHopping tuic "${result[-1]}"
         initTuicProtocol
         cat <<EOF >/etc/v2ray-agent/sing-box/conf/config/09_tuic_inbounds.json
 {

@@ -3282,6 +3282,24 @@ addFirewalldPortHopping() {
 addPortHopping() {
     local type=$1
     local targetPort=$2
+    local defaultRange=""
+    local otherType=""
+    local otherTargetPort=""
+    local otherStart=""
+    local otherEnd=""
+
+    if [[ "${type}" == "hysteria2" ]]; then
+        defaultRange="55000-59999"
+        otherType="tuic"
+        otherTargetPort="${singBoxTuicPort}"
+    elif [[ "${type}" == "tuic" ]]; then
+        defaultRange="50000-54999"
+        otherType="hysteria2"
+        otherTargetPort="${singBoxHysteria2Port}"
+    else
+        defaultRange="55000-59999"
+    fi
+
     if [[ -n "${portHoppingStart}" || -n "${portHoppingEnd}" ]]; then
         echoContent red " ---> 已添加不可重复添加，可删除后重新添加"
         return 1
@@ -3298,15 +3316,15 @@ addPortHopping() {
     echoContent yellow "# 注意事项\n"
     echoContent yellow "仅支持Hysteria2、Tuic"
     echoContent yellow "端口范围为 1-65535"
-    echoContent yellow "默认范围为 55000-60000"
+    echoContent yellow "默认范围为 ${defaultRange}"
     echoContent yellow "建议1000个左右，范围越大配置越慢"
     echoContent yellow "注意不要和其他的端口跳跃设置范围一样，设置相同会覆盖。"
 
-    echoContent yellow "请输入端口跳跃的范围，例如[55000-56000]，[回车]使用默认[55000-60000]"
+    echoContent yellow "请输入端口跳跃的范围，例如[${defaultRange%-*}-$((${defaultRange#*-} - 1))]，[回车]使用默认[${defaultRange}]"
 
     read -r -p "范围:" portHoppingRange
     if [[ -z "${portHoppingRange}" ]]; then
-        portHoppingRange="55000-60000"
+        portHoppingRange="${defaultRange}"
     fi
 
     if ! echo "${portHoppingRange}" | grep -q "-"; then
@@ -3326,6 +3344,24 @@ addPortHopping() {
     if ((portStart < 1 || portStart > 65535 || portEnd < 1 || portEnd > 65535 || portEnd < portStart)); then
         echoContent red " ---> 范围不合法"
         return 1
+    fi
+
+    if [[ "${type}" == "hysteria2" || "${type}" == "tuic" ]]; then
+        if [[ -n "${otherType}" && -n "${otherTargetPort}" ]]; then
+            readPortHopping "${otherType}" "${otherTargetPort}"
+            if [[ "${otherType}" == "hysteria2" ]]; then
+                otherStart="${hysteria2PortHoppingStart}"
+                otherEnd="${hysteria2PortHoppingEnd}"
+            else
+                otherStart="${tuicPortHoppingStart}"
+                otherEnd="${tuicPortHoppingEnd}"
+            fi
+            if [[ -n "${otherStart}" && -n "${otherEnd}" ]] && ((portStart <= otherEnd && otherStart <= portEnd)); then
+                echoContent red " ---> 端口跳跃范围与 ${otherType} 已存在范围冲突: ${otherStart}-${otherEnd}"
+                echoContent yellow " ---> 建议 Tuic 使用 50000-54999，Hysteria2 使用 55000-59999"
+                return 1
+            fi
+        fi
     fi
 
     echoContent green "\n端口范围: ${portHoppingRange}\n"

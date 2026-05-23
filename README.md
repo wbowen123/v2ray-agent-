@@ -73,7 +73,16 @@ curl -L -o /root/docker_v2ray_agent.sh "https://raw.githubusercontent.com/wbowen
 ```
 vad
 ```
+20260523更新
 
+修改默认范围，并加了重叠校验
+
+- install.sh ：默认改为 Tuic 50000-54999 ，Hysteria2 55000-59999 ，且如果检测到另一协议已有范围且重叠，会直接提示冲突并拒绝设置
+  - 入口在 addPortHopping
+- docker_v2ray_agent.sh ：默认改为 Tuic 50000:54999 ，Hysteria2 55000:59999 ，并在“添加/修改端口跳跃”时做重叠校验
+  - 默认值在 loadState
+  - 菜单逻辑在 portHoppingMenu
+    
 20260515更新
 
 申请证书添加本地搜索导入
